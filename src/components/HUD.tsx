@@ -1,14 +1,15 @@
 import { useRef, useEffect } from 'react';
+import type { Display } from '../hooks/useMazeGame';
 
-function fmt(ms) {
+function fmt(ms: number) {
   const s = Math.floor(ms / 1000);
   const m = Math.floor(s / 60);
   return `${m}:${String(s % 60).padStart(2, '0')}`;
 }
 
 // Flash a value when it changes
-function useFlash(value) {
-  const ref = useRef(null);
+function useFlash(value: unknown) {
+  const ref = useRef<HTMLElement>(null);
   const prev = useRef(value);
   useEffect(() => {
     if (prev.current !== value && ref.current) {
@@ -22,7 +23,9 @@ function useFlash(value) {
   return ref;
 }
 
-function HudRow({ label, value, dim = false }) {
+interface HudRowProps { label: string; value: string | number; dim?: boolean; }
+
+function HudRow({ label, value, dim = false }: HudRowProps) {
   const valRef = useFlash(value);
   return (
     <div
@@ -53,7 +56,9 @@ function HudRow({ label, value, dim = false }) {
   );
 }
 
-export function HUD({ display, onReset }) {
+interface HUDProps { display: Display; onReset: () => void; }
+
+export function HUD({ display, onReset }: HUDProps) {
   const { timerElapsed, moveCount, streak, bests, level } = display;
   const bestTime = bests[level] ? fmt(bests[level]) : '—';
 

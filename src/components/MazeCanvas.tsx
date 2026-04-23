@@ -1,8 +1,8 @@
-import { useRef, useEffect } from 'react';
-import { levelConfig } from '../hooks/useMazeGame';
+import { useRef, useEffect, type MutableRefObject, type TouchEvent as ReactTouchEvent } from 'react';
+import { levelConfig, type GameState, type Dir } from '../hooks/useMazeGame';
 
 // t=0 deep dark red → t=1 bright orange-red
-function trailColor(t) {
+function trailColor(t: number) {
   let r, g, b;
   if (t < 0.5) {
     const u = t * 2;
@@ -18,13 +18,19 @@ function trailColor(t) {
   return `rgb(${r},${g},${b})`;
 }
 
-export function MazeCanvas({ gameRef, move, advance }) {
-  const canvasRef = useRef(null);
+interface MazeCanvasProps {
+  gameRef: MutableRefObject<GameState>;
+  move: (dir: Dir) => void;
+  advance: () => void;
+}
+
+export function MazeCanvas({ gameRef, move, advance }: MazeCanvasProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d')!;
 
     const applyDPR = () => {
       const dpr = window.devicePixelRatio || 1;
@@ -46,10 +52,10 @@ export function MazeCanvas({ gameRef, move, advance }) {
       return { cols, cell, offX, offY };
     };
 
-    let rafId;
+    let rafId = 0;
     let pulseT = 0;
 
-    const render = (ts = 0) => {
+    const render = (ts: number = 0) => {
       pulseT = ts * 0.003;
       const s = gameRef.current;
       if (!s.maze) return;
@@ -144,7 +150,7 @@ export function MazeCanvas({ gameRef, move, advance }) {
       ctx.restore();
     };
 
-    const loop = (ts) => {
+    const loop = (ts: number) => {
       render(ts);
       rafId = requestAnimationFrame(loop);
     };
@@ -162,14 +168,14 @@ export function MazeCanvas({ gameRef, move, advance }) {
   // Touch / swipe
   const touchStart = useRef({ x: 0, y: 0 });
 
-  const handleTouchStart = (e) => {
+  const handleTouchStart = (e: ReactTouchEvent<HTMLCanvasElement>) => {
     touchStart.current = {
       x: e.touches[0].clientX,
       y: e.touches[0].clientY,
     };
   };
 
-  const handleTouchEnd = (e) => {
+  const handleTouchEnd = (e: ReactTouchEvent<HTMLCanvasElement>) => {
     if (gameRef.current.levelSolved) { advance(); return; }
     const dx = e.changedTouches[0].clientX - touchStart.current.x;
     const dy = e.changedTouches[0].clientY - touchStart.current.y;
