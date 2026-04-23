@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
-import { levelSize } from '../hooks/useMazeGame';
+import { levelSize, type Display } from '../hooks/useMazeGame';
 
-function fmt(ms) {
+function fmt(ms: number) {
   const s = Math.floor(ms / 1000);
   const m = Math.floor(s / 60);
   return `${m}:${String(s % 60).padStart(2, '0')}`;
@@ -24,7 +24,9 @@ const SCANLINE_STYLE = `
 }
 `;
 
-export function WinBanner({ display, onAdvance }) {
+interface WinBannerProps { display: Display; onAdvance: () => void; }
+
+export function WinBanner({ display, onAdvance }: WinBannerProps) {
   const { level, moveCount, timerElapsed, streak, bests, levelSolved } = display;
 
   // Inject scanline style once
@@ -37,7 +39,7 @@ export function WinBanner({ display, onAdvance }) {
   }, []);
 
   // Focus the Next button on show for keyboard accessibility
-  const btnRef = useRef(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (levelSolved && btnRef.current) {
       setTimeout(() => btnRef.current?.focus(), 400);

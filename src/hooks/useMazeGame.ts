@@ -1,7 +1,12 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 
+type Dir = 'n' | 's' | 'e' | 'w';
+type Cell = Set<Dir>;
+type Maze = Cell[][];
+type PRNG = () => number;
+
 // ── PRNG (mulberry32) ─────────────────────────────────────────────────────
-function makePRNG(seed) {
+function makePRNG(seed: number): PRNG {
   return () => {
     seed |= 0;
     seed = (seed + 0x6D2B79F5) | 0;
@@ -11,30 +16,31 @@ function makePRNG(seed) {
   };
 }
 
-function dateSeed(d) {
+function dateSeed(d: Date): number {
   return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
 }
 
 // ── Maze generation ───────────────────────────────────────────────────────
-const OPP = { n: 's', s: 'n', e: 'w', w: 'e' };
-const MX  = { n: 0, s: 0, e: 1, w: -1 };
-const MY  = { n: -1, s: 1, e: 0, w: 0 };
+const OPP: Record<Dir, Dir> = { n: 's', s: 'n', e: 'w', w: 'e' };
+const MX: Record<Dir, number> = { n: 0, s: 0, e: 1, w: -1 };
+const MY: Record<Dir, number> = { n: -1, s: 1, e: 0, w: 0 };
+const DIRS: Dir[] = ['n', 's', 'e', 'w'];
 
-function emptyGrid(cols, rows) {
+function emptyGrid(cols: number, rows: number): Maze {
   return Array.from({ length: rows }, () =>
-    Array.from({ length: cols }, () => new Set())
+    Array.from({ length: cols }, () => new Set<Dir>())
   );
 }
 
 // Recursive backtracker — long corridors, low branching (easier to follow).
-function buildMazeDFS(cols, rows, rng) {
+function buildMazeDFS(cols: number, rows: number, rng: PRNG): Maze {
   const cell = emptyGrid(cols, rows);
   const vis = Array.from({ length: rows }, () => new Uint8Array(cols));
   vis[0][0] = 1;
-  const stk = [{ x: 0, y: 0 }];
+  const stk: { x: number; y: number }[] = [{ x: 0, y: 0 }];
   while (stk.length) {
     const { x, y } = stk[stk.length - 1];
-    const nbrs = ['n', 's', 'e', 'w'].filter(d => {
+    const nbrs = DIRS.filter(d => {
       const nx = x + MX[d], ny = y + MY[d];
       return nx >= 0 && nx < cols && ny >= 0 && ny < rows && !vis[ny][nx];
     });
@@ -50,17 +56,17 @@ function buildMazeDFS(cols, rows, rng) {
 }
 
 // Prim's — short branches, many decision points (harder to navigate).
-function buildMazePrim(cols, rows, rng) {
+function buildMazePrim(cols: number, rows: number, rng: PRNG): Maze {
   const cell = emptyGrid(cols, rows);
   const inMaze = Array.from({ length: rows }, () => new Uint8Array(cols));
   inMaze[0][0] = 1;
-  const frontier = [];
-  const addFrontier = (x, y) => {
-    for (const d of ['n', 's', 'e', 'w']) {
+  const frontier: { x: number; y: number }[] = [];
+  const addFrontier = (x: number, y: number) => {
+    for (const d of DIRS) {
       const nx = x + MX[d], ny = y + MY[d];
       if (nx >= 0 && nx < cols && ny >= 0 && ny < rows && !inMaze[ny][nx]) {
         frontier.push({ x: nx, y: ny });
-        inMaze[ny][nx] = 2; // marked as frontier
+        inMaze[ny][nx] = 2;
       }
     }
   };
@@ -68,7 +74,7 @@ function buildMazePrim(cols, rows, rng) {
   while (frontier.length) {
     const idx = Math.floor(rng() * frontier.length);
     const { x, y } = frontier.splice(idx, 1)[0];
-    const conn = ['n', 's', 'e', 'w'].filter(d => {
+    const conn = DIRS.filter(d => {
       const nx = x + MX[d], ny = y + MY[d];
       return nx >= 0 && nx < cols && ny >= 0 && ny < rows && inMaze[ny][nx] === 1;
     });
@@ -85,16 +91,14 @@ function buildMazePrim(cols, rows, rng) {
 }
 
 // Braid: remove a fraction of dead-ends by knocking out a wall to a neighbor.
-// Loops destroy the "always choose unvisited" heuristic — backtracks no longer prune.
-function braid(cell, frac, rng) {
+function braid(cell: Maze, frac: number, rng: PRNG): Maze {
   const rows = cell.length, cols = cell[0].length;
-  const deadEnds = [];
+  const deadEnds: { x: number; y: number }[] = [];
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       if (cell[y][x].size === 1) deadEnds.push({ x, y });
     }
   }
-  // shuffle
   for (let i = deadEnds.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
     [deadEnds[i], deadEnds[j]] = [deadEnds[j], deadEnds[i]];
@@ -102,13 +106,12 @@ function braid(cell, frac, rng) {
   const target = Math.floor(deadEnds.length * frac);
   for (let i = 0; i < target; i++) {
     const { x, y } = deadEnds[i];
-    if (cell[y][x].size !== 1) continue; // already opened via its neighbor
-    const cands = ['n', 's', 'e', 'w'].filter(d => {
+    if (cell[y][x].size !== 1) continue;
+    const cands = DIRS.filter(d => {
       const nx = x + MX[d], ny = y + MY[d];
       return nx >= 0 && nx < cols && ny >= 0 && ny < rows && !cell[y][x].has(d);
     });
     if (!cands.length) continue;
-    // prefer a neighbor that's itself a dead-end, else random
     const preferred = cands.filter(d => {
       const nx = x + MX[d], ny = y + MY[d];
       return cell[ny][nx].size === 1;
@@ -122,23 +125,27 @@ function braid(cell, frac, rng) {
   return cell;
 }
 
-const MOVE_DX = { n: 0, s: 0, e: 1, w: -1 };
-const MOVE_DY = { n: -1, s: 1, e: 0, w: 0 };
+const MOVE_DX: Record<Dir, number> = { n: 0, s: 0, e: 1, w: -1 };
+const MOVE_DY: Record<Dir, number> = { n: -1, s: 1, e: 0, w: 0 };
 
-export function levelSize(lvl) { return 10 + (lvl - 1) * 3; }
+export function levelSize(lvl: number): number { return 10 + (lvl - 1) * 3; }
 
-// Difficulty knobs beyond grid size. Tuned so each lever kicks in at a clear
-// threshold — player feels the change rather than a gradual blur.
-export function levelConfig(lvl) {
+export interface LevelConfig {
+  cols: number;
+  algo: 'dfs' | 'prim';
+  braid: number;
+  fog: number;
+}
+
+export function levelConfig(lvl: number): LevelConfig {
   const cols = levelSize(lvl);
-  const algo   = lvl >= 3 ? 'prim' : 'dfs';
-  const braid  = lvl >= 5 ? Math.min(0.5, 0.15 + (lvl - 5) * 0.06) : 0;
-  // Fog kicks in at level 7; radius shrinks toward a floor of ~4 cells.
-  const fog    = lvl >= 7 ? Math.max(4, Math.round(cols * 0.55 - (lvl - 7) * 0.8)) : 0;
+  const algo: 'dfs' | 'prim' = lvl >= 3 ? 'prim' : 'dfs';
+  const braid = lvl >= 5 ? Math.min(0.5, 0.15 + (lvl - 5) * 0.06) : 0;
+  const fog = lvl >= 7 ? Math.max(4, Math.round(cols * 0.55 - (lvl - 7) * 0.8)) : 0;
   return { cols, algo, braid, fog };
 }
 
-function buildMaze(lvl, rng) {
+function buildMaze(lvl: number, rng: PRNG): Maze {
   const { cols, algo, braid: b } = levelConfig(lvl);
   const maze = algo === 'prim'
     ? buildMazePrim(cols, cols, rng)
@@ -148,25 +155,43 @@ function buildMaze(lvl, rng) {
 }
 
 // ── Persistence ───────────────────────────────────────────────────────────
-const SK = 'maze_toys_v5';
-const loadSt = () => { try { return JSON.parse(localStorage.getItem(SK)) || {}; } catch { return {}; } };
-const saveSt = d => localStorage.setItem(SK, JSON.stringify(d));
+interface SavedState {
+  date?: string;
+  level?: number;
+  streak?: number;
+  longest?: number;
+  lastDate?: string | null;
+  bests?: Record<number, number>;
+}
 
-const today    = new Date();
+const SK = 'maze_toys_v5';
+const loadSt = (): SavedState => {
+  try { return JSON.parse(localStorage.getItem(SK) || '') || {}; }
+  catch { return {}; }
+};
+const saveSt = (d: SavedState) => localStorage.setItem(SK, JSON.stringify(d));
+
+const today = new Date();
 const todayKey = `${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}`;
-const DS       = dateSeed(today);
+const DS = dateSeed(today);
 
 // ── Audio ─────────────────────────────────────────────────────────────────
+interface WindowWithWebkit extends Window {
+  webkitAudioContext?: typeof AudioContext;
+}
+
 function useAudio() {
-  const acRef = useRef(null);
-  const getAC = useCallback(() => {
+  const acRef = useRef<AudioContext | null>(null);
+  const getAC = useCallback((): AudioContext => {
     if (!acRef.current) {
-      acRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      const w = window as WindowWithWebkit;
+      const Ctor = window.AudioContext || w.webkitAudioContext!;
+      acRef.current = new Ctor();
     }
     return acRef.current;
   }, []);
 
-  const tone = useCallback((freq, dur, vol = 0.1, type = 'square', delay = 0) => {
+  const tone = useCallback((freq: number, dur: number, vol = 0.1, type: OscillatorType = 'square', delay = 0) => {
     try {
       const a = getAC();
       const o = a.createOscillator();
@@ -188,13 +213,42 @@ function useAudio() {
   };
 }
 
+// ── Game state ────────────────────────────────────────────────────────────
+export interface GameState {
+  level: number;
+  maze: Maze | null;
+  px: number;
+  py: number;
+  visited: Set<string>;
+  moveCount: number;
+  levelSolved: boolean;
+  timerStart: number | null;
+  timerElapsed: number;
+  timerTick: ReturnType<typeof setInterval> | null;
+  streak: number;
+  longest: number;
+  lastDate: string | null;
+  bests: Record<number, number>;
+}
+
+export interface Display {
+  level: number;
+  cols: number;
+  moveCount: number;
+  timerElapsed: number;
+  streak: number;
+  bests: Record<number, number>;
+  levelSolved: boolean;
+}
+
+export type { Dir };
+
 // ── Main hook ─────────────────────────────────────────────────────────────
 export function useMazeGame() {
-  const savedSt = useRef(loadSt()).current;
+  const savedSt = useRef<SavedState>(loadSt()).current;
   const sfx = useAudio();
 
-  // React display state — triggers re-renders for HUD / badge / banner
-  const [display, setDisplay] = useState(() => {
+  const [display, setDisplay] = useState<Display>(() => {
     const lvl = (savedSt.date === todayKey) ? (savedSt.level || 1) : 1;
     return {
       level:        lvl,
@@ -207,8 +261,7 @@ export function useMazeGame() {
     };
   });
 
-  // Mutable refs — read directly by the RAF canvas loop (no re-render overhead)
-  const g = useRef({
+  const g = useRef<GameState>({
     level:        (savedSt.date === todayKey) ? (savedSt.level || 1) : 1,
     maze:         null,
     px:           0,
@@ -225,7 +278,6 @@ export function useMazeGame() {
     bests:        (savedSt.date === todayKey) ? (savedSt.bests || {}) : {},
   });
 
-  // Push mutable state → React display
   const syncDisplay = useCallback(() => {
     const s = g.current;
     setDisplay({
@@ -239,28 +291,26 @@ export function useMazeGame() {
     });
   }, []);
 
-  // ── Timer ───────────────────────────────────────────────────────────────
   const startTimer = useCallback(() => {
     const s = g.current;
     s.timerStart   = Date.now();
     s.timerElapsed = 0;
     s.timerTick    = setInterval(() => {
-      s.timerElapsed = Date.now() - s.timerStart;
+      s.timerElapsed = Date.now() - (s.timerStart as number);
       setDisplay(d => ({ ...d, timerElapsed: s.timerElapsed }));
     }, 200);
   }, []);
 
   const stopTimer = useCallback(() => {
     const s = g.current;
-    clearInterval(s.timerTick);
+    if (s.timerTick) clearInterval(s.timerTick);
     s.timerTick = null;
     if (s.timerStart) s.timerElapsed = Date.now() - s.timerStart;
   }, []);
 
-  // ── Level init ──────────────────────────────────────────────────────────
-  const startLevel = useCallback((lvl) => {
+  const startLevel = useCallback((lvl: number) => {
     const s = g.current;
-    clearInterval(s.timerTick);
+    if (s.timerTick) clearInterval(s.timerTick);
     s.timerTick    = null;
     s.level        = lvl;
     s.maze         = buildMaze(lvl, makePRNG(DS * 100 + lvl));
@@ -274,7 +324,6 @@ export function useMazeGame() {
     syncDisplay();
   }, [syncDisplay]);
 
-  // ── Win ─────────────────────────────────────────────────────────────────
   const onWin = useCallback(() => {
     const s = g.current;
     s.levelSolved = true;
@@ -306,8 +355,7 @@ export function useMazeGame() {
     syncDisplay();
   }, [stopTimer, sfx, syncDisplay]);
 
-  // ── Move ────────────────────────────────────────────────────────────────
-  const move = useCallback((dir) => {
+  const move = useCallback((dir: Dir) => {
     const s = g.current;
     if (s.levelSolved || !s.maze) return;
     if (!s.maze[s.py][s.px].has(dir)) { sfx.wall(); return; }
@@ -329,10 +377,9 @@ export function useMazeGame() {
     syncDisplay();
   }, [sfx, startTimer, onWin, syncDisplay]);
 
-  // ── Reset ───────────────────────────────────────────────────────────────
   const reset = useCallback(() => {
     const s = g.current;
-    clearInterval(s.timerTick);
+    if (s.timerTick) clearInterval(s.timerTick);
     s.timerTick    = null;
     s.px           = 0;
     s.py           = 0;
@@ -344,17 +391,18 @@ export function useMazeGame() {
     syncDisplay();
   }, [syncDisplay]);
 
-  // ── Advance ─────────────────────────────────────────────────────────────
   const advance = useCallback(() => {
     if (!g.current.levelSolved) return;
     startLevel(g.current.level + 1);
   }, [startLevel]);
 
-  // ── Boot ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     startLevel(g.current.level);
-    return () => clearInterval(g.current.timerTick);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => {
+      if (g.current.timerTick) clearInterval(g.current.timerTick);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return { display, gameRef: g, move, reset, advance };
 }

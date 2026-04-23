@@ -1,4 +1,6 @@
-export function LevelBadge({ level, cols }) {
+interface LevelBadgeProps { level: number; cols: number; }
+
+export function LevelBadge({ level, cols }: LevelBadgeProps) {
   return (
     <div
       style={{
